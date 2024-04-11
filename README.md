@@ -1,2 +1,2 @@
 # agrust
-A blazingly fast Rust-to-Rust Compiler!
+A blazingly fast  Cranelift focused Rust-to-Rust Compiler!
