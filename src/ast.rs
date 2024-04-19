@@ -218,7 +218,7 @@ impl Expression {
                     &tabs_to_string(tabs)
                 }
                 else {
-                    tabs_to_string(tabs)
+                    "".to_string()
                 };
 
                 if *is_fn_public {
@@ -266,7 +266,7 @@ impl Expression {
                     result += "\n";
                 }
 
-                result += "}\n";
+                result += &(tabs_to_string(tabs) + "}\n");
 
                 result
             },
@@ -353,7 +353,7 @@ impl Expression {
                     res += &i.codegen(tabs + 1, false);
                 }
 
-                res += "}";
+                res += &(tabs_to_string(tabs) + "}");
 
                 res
             },
