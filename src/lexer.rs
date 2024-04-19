@@ -12,6 +12,8 @@ pub enum LexerToken {
     Return,
     If,
     Else,
+    Mod,
+    Pub,
 }
 
 pub struct Lexer {
@@ -55,7 +57,6 @@ impl Lexer {
 
     pub fn get_next_token(&mut self) {
         self.current_token = self.token();
-        //dbg!(&self.current_token);
     }
 
     pub fn token(&mut self) -> LexerToken {
@@ -114,6 +115,8 @@ impl Lexer {
             "return" => LexerToken::Return,
             "if" => LexerToken::If,
             "else" => LexerToken::Else,
+            "mod" => LexerToken::Mod,
+            "pub" => LexerToken::Pub,
             _ => LexerToken::Identifier(self.string_buffer.to_string()),
         }
     }

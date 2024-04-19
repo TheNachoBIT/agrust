@@ -3,6 +3,7 @@ use crate::ast;
 use crate::ast::RType;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::fs;
 
 pub struct Parser {
     lex: lexer::Lexer,
@@ -134,7 +135,7 @@ impl Parser {
 
         let ret_val = self.parse_expression(None);
 
-        return ast::Expression::RRealReturn { ret: Box::new(ret_val), is_implicit: false };
+        return ast::Expression::RRealReturn { ret: Box::new(ret_val) };
     }
 
     pub fn parse_if(&mut self) -> ast::Expression {
@@ -205,6 +206,8 @@ impl Parser {
 
     pub fn parse_primary(&mut self, target: Option<ast::Expression>) -> ast::Expression {
 
+        //dbg!(&self.lex.current_token);
+
         let mut res = match &self.lex.current_token {
             lexer::LexerToken::Let => self.parse_let(),
             lexer::LexerToken::Identifier(ident) => self.parse_identifier(ident.clone()),
@@ -254,12 +257,8 @@ impl Parser {
 
         return ast::Expression::RCall { 
             name: ident, 
-            parent_fn_name: String::new(),
-            is_parent_real: self.is_current_fn_real,
-            id: get_call_id, 
-            fn_args: Vec::new(), 
-            call_args: call_arguments, 
-            content: Vec::new() 
+            id: get_call_id,  
+            call_args: call_arguments
         };
     }
 
@@ -269,6 +268,27 @@ impl Parser {
 
         if self.lex.current_token == lexer::LexerToken::Char('(') {
             return self.parse_call(ident);
+        }
+
+        if self.lex.current_token == lexer::LexerToken::Char(':') {
+            self.lex.get_next_token();
+
+            if self.lex.current_token != lexer::LexerToken::Char(':') {
+                self.lex.go_back();
+            }
+            else {
+                self.lex.get_next_token();
+
+                let old_ident = ident;
+
+                if let lexer::LexerToken::Identifier(ident) = &self.lex.current_token {
+                    let new_ident = old_ident + "::" + &ident.clone();
+                    return self.parse_identifier(new_ident);
+                }
+                else {
+                    panic!("Expected identifier! Found {:#?}", &self.lex.current_token);
+                }
+            }
         }
 
         return ast::Expression::RVariable { name: ident };
@@ -352,7 +372,7 @@ impl Parser {
     }
 
     pub fn is_an_end_character(&self, s: &String) -> bool {
-        return s == ";" || s == "{" || s == "}" || s == "(" || s == ")" || s == ",";
+        return s == ";" || s == "{" || s == "}" || s == "(" || s == ")" || s == "," || s == "";
     }
 
     pub fn parse_binary_operator(&mut self, expr_precedence: i64, lv: ast::Expression, target: Option<ast::Expression>) -> ast::Expression {
@@ -438,17 +458,15 @@ impl Parser {
 
         self.all_registered_variables.push(new_var_info);
 
-        return ast::Expression::RLet { name: get_name.to_string(), ty: get_type };
+        return ast::Expression::RLet { name: get_name.to_string(), is_mutable: false, ty: get_type };
     }
 
-    pub fn parse_function(&mut self) -> ast::Expression {
+    pub fn parse_function(&mut self, is_public: bool) -> ast::Expression {
 
         self.all_registered_variables.clear();
         self.variable_id = 0;
 
         self.lex.get_next_token();
-
-        println!("Parsing function...");
 
         let get_name: String;
         if let lexer::LexerToken::Identifier(ident) = &self.lex.current_token {
@@ -458,7 +476,7 @@ impl Parser {
             panic!("Expected identifier");
         }
 
-        self.is_current_fn_real = get_name == "main";
+        self.is_current_fn_real = true;
 
         self.lex.get_next_token();
 
@@ -504,7 +522,7 @@ impl Parser {
 
             self.all_registered_variables.push(new_var_info);
 
-            get_arguments.push(ast::Expression::RLet { name: get_name.to_string(), ty: get_type });
+            get_arguments.push(ast::Expression::RLet { name: get_name.to_string(), is_mutable: false, ty: get_type });
 
             if self.lex.current_token == lexer::LexerToken::Char(',') {
                 self.lex.get_next_token();
@@ -566,10 +584,12 @@ impl Parser {
                     panic!("The use of ';' is not allowed here.");
                 }
             }
-            else if self.lex.current_token != lexer::LexerToken::Char(';') {
-                panic!("Expected ';'. Found {:#?}", &self.lex.current_token);
-            }
             else {
+
+                if self.lex.current_token != lexer::LexerToken::Char(';') {
+                    panic!("Expected ';'. Found {:#?}", &self.lex.current_token);
+                }
+
                 self.lex.get_next_token();
             }
 
@@ -584,7 +604,61 @@ impl Parser {
 
         self.lex.get_next_token();
 
-        return ast::Expression::RFunction { name: get_name, ty: get_type, arguments: get_arguments, instructions: all_inst, generate_real: self.is_current_fn_real };
+        let mut is_pub = is_public;
+        if get_name == "main" {
+            is_pub = true;
+        }
+
+        return ast::Expression::RFunction { name: get_name, is_fn_public: is_pub, ty: get_type, arguments: get_arguments, instructions: all_inst };
+    }
+
+    pub fn get_contents_of_rs_file(&mut self, name: String) -> Vec<ast::Expression> {
+
+        let file_name: String = name.to_string() + ".rs";
+
+        let lex: lexer::Lexer = lexer::Lexer::new(fs::read_to_string(&file_name).expect("Cannot open test.rs"));
+
+        let mut par: Parser = Parser::new(lex);
+
+        let _final_codegen = par.start();
+
+        return par.all_instructions;
+    }
+
+    pub fn parse_mod(&mut self) -> ast::Expression {
+
+        self.lex.get_next_token();
+
+        let get_name: String;
+        if let lexer::LexerToken::Identifier(ident) = &self.lex.current_token {
+            get_name = ident.clone();
+        }
+        else {
+            panic!("Expected identifier");
+        }
+
+        self.lex.get_next_token();
+
+        if self.lex.current_token != lexer::LexerToken::Char(';') {
+            panic!("Expected ';'");
+        }
+
+        self.lex.get_next_token();
+
+        let get_all_contents = self.get_contents_of_rs_file(get_name.clone());
+
+        return ast::Expression::RMod { name: get_name, content: get_all_contents };
+    }
+
+    pub fn parse_pub(&mut self) -> ast::Expression {
+        self.lex.get_next_token();
+
+        match self.lex.current_token {
+            lexer::LexerToken::Function => { 
+                self.parse_function(true)
+            },
+            _ => panic!("Expected function! Found {:#?}", &self.lex.current_token),
+        }
     }
 
     pub fn start(&mut self) -> String {
@@ -596,44 +670,27 @@ impl Parser {
         while self.lex.current_token != lexer::LexerToken::EndOfFile {
 
             match self.lex.current_token {
+                lexer::LexerToken::Pub => {
+                    let p = self.parse_pub();
+                    self.all_instructions.push(p);
+                },
                 lexer::LexerToken::Function => { 
-                    let func = self.parse_function();
-                    //dbg!(&func);
+                    let func = self.parse_function(false);
                     self.all_instructions.push(func);
                 },
+                lexer::LexerToken::Mod => {
+                    let get_mod = self.parse_mod();
+                    self.all_instructions.push(get_mod);
+                }
                 _ => break
             };
-        }
-
-        let mut fn_list: Vec<ast::Expression> = Vec::new();
-
-        for inst in &self.all_instructions {
-            match inst {
-                ast::Expression::RFunction { name, ty, instructions, generate_real, arguments } => {
-                    let get_gen_real = generate_real;
-                    if name != "main" {
-                        fn_list.push(ast::Expression::RFunction { 
-                            name: name.clone(), 
-                            ty: ty.clone(), 
-                            arguments: arguments.clone(),
-                            instructions: instructions.clone(), 
-                            generate_real: *get_gen_real 
-                        });
-                    }
-                },
-                _ => {}
-            }
-        }
-
-        for inst in &mut self.all_instructions {
-            inst.add_content_to_calls(&fn_list, &"".to_string());
         }
 
         final_result += "#![no_main]\n";
 
         for inst in &mut self.all_instructions {
 
-            let res_cg = inst.codegen(0);
+            let res_cg = inst.codegen(0, false);
 
             if res_cg != "" {
                 final_result += &(res_cg + "\n");

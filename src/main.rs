@@ -46,6 +46,13 @@ fn main() {
         "".to_string()
     };
 
+    let args: Vec<_> = env::args().collect();
+    for i in args {
+        if i == "--no-build" {
+            std::process::exit(0);
+        }
+    }
+
     let mut arguments: Vec<String> = Vec::new();
 
     if get_lld_linker != "" {
@@ -59,13 +66,19 @@ fn main() {
     }
 
     arguments.push("output.rs".to_string());
+    arguments.push("--emit=llvm-ir".to_string());
 
     let now = SystemTime::now();
 
-    let comp_output = Command::new("rustc-clif").args(arguments).output().unwrap();
+    let rustc_output = Command::new("rustc").args(arguments).output().unwrap();
 
     // No color :(
-    println!("{}", String::from_utf8_lossy(&comp_output.stderr));
+    println!("{}", String::from_utf8_lossy(&rustc_output.stderr));
+
+    let clang_output = Command::new("clang").args(["output.ll", "-nostdlib", "-o", "output"]).output().unwrap();
+
+    // No color, again :(
+    println!("{}", String::from_utf8_lossy(&clang_output.stderr));
 
     println!("Compilation finished in: {}s", now.elapsed().unwrap().as_secs_f64());
 }
